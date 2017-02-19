@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# VirtualBox
+function virtualbox {
+	# Variables
+	PACKAGE=virtualbox
+	NAME="VirtualBox"
+	# Install
+	show_header 'Begin '$NAME' installation'
+	# Check if already installed
+	show_info 'Checking if '$NAME' already installed...'
+    PKGCHECK=$(dpkg-query -W --showformat='${Status}\n' $PACKAGE|grep "install ok installed")
+    if [ "" == "$PKGCHECK" ]; then
+        echo $NAME 'is not installed. Proceeding'
+		show_info 'Downloading '$NAME'...'
+		# Install package(s)
+		show_info 'Installing '$NAME'...'
+		show_warning 'Requires root privileges'
+
+		# Use virtualbox source
+		echo "# VirtualBox" >> /etc/atp/sources.list
+		echo "deb http://download.virtualbox.org/virtualbox/debian xenial contrib" >> /etc/atp/sources.list
+
+		# Install Virtual Box from apt (Ubuntu 16.04 has extension pack at Canonical Repos)
+		sudo apt-get clean
+		sudo apt-get update
+		sudo apt-get install virtualbox5.1 virtualbox-ext-pack -fy
+
+		# Download Extension Pack
+	        # curl -O http://download.virtualbox.org/virtualbox/5.1.14/Oracle_VM_VirtualBox_Extension_Pack-5.1.14-112924.vbox-extpack
+	    # Done
+	    show_success 'Done.'
+	    whiptail --title "Finished" --msgbox "Installation of $NAME complete." 8 78
+		thirdparty
+    else
+        # Already installed
+        show_success $NAME 'already installed.'
+	    whiptail --title "Finished" --msgbox "$NAME is already installed." 8 78
+	    thirdparty
+    fi
+}

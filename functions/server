@@ -1,0 +1,174 @@
+#!/bin/bash
+
+dir="$(dirname "$0")"
+
+# Create network drives
+function network_drives {
+	show_info 'Configuring network drives...'
+	show_warning 'Requires root privileges'
+
+
+	show_info 'Backing up files...'
+	# Backup files first
+	sudo cp /etc/hosts /etc/hosts.old
+	sudo cp /etc/fstab /etc/fstab.old
+	show_info 'Done.'
+
+	# Insert Synlogy in hosts file
+	DS414_IP=$(whiptail --title "DS414 IP" --inputbox "What is the ip address?" 10 60 10.0.0.10 3>&1 1>&)
+
+	exitstatus=$?
+	if [ $exitstatus = 0 ]; then
+		#echo "Your IP address is:" $IP
+		sudo echo $IP "	ds414" >> /etc/hosts
+		show_info '/etc/hosts configured...'
+	else
+		show_warning 'Error configuring /etc/hosts...'
+	fi
+
+	# Create correct directories
+	sudo mkdir /media/dshome
+	sudo mkdir /media/dsbackup
+	sudo mkdir /media/dsmedia
+
+	# Create and configure credentials file	
+	sudo touch /root/.cifscredentials
+
+	# promtp user name
+	USER=$(whiptail --title "username" --inputbox "Please enter the username: " 10 60 3>&1 1>&)
+	sudo echo "username=" $USER >> /root/.cifscredentials
+	PASS=$(whiptail --title "username" --passwordbox "Please enter the password: " 10 60 3>&1 1>&)
+	sudo echo "password=" $PASS >> /root/.cifscredentials
+
+	# Set permissions
+	sudo chmod o-r /root/.cifscredentials
+
+	show_info '.cifscredentials configured.'
+
+
+
+	# Insert paths in /etc/fstab
+	sudo echo "//ds414/media /media/dsmedia cifs auto,uid=1000,iocharset=utf8,gid=users,credentials=/root/.cifscredentials,file_mode=0775,dir_mode=0775 0 0" >> /etc/fstab
+	sudo echo "//ds414/home /media/dshome cifs auto,uid=1000,iocharset=utf8,gid=users,credentials=/root/.cifscredentials,file_mode=0775,dir_mode=0775 0 0" >> /etc/fstab
+	sudo echo "//ds414/Backup /media/dsbackup cifs auto,uid=1000,iocharset=utf8,gid=users,credentials=/root/.cifscredentials,file_mode=0775,dir_mode=0775 0 0" >> /etc/fstab
+
+	# Mount everything
+	sudo mount -a
+
+	# Done
+        # Check
+        EXITSTATUS=$1
+        if [[ $EXITSTATUS != 0 ]]; then
+            # Error mounting drives
+            show_success 'Network drives already installed.'
+            whiptail --title "Finished" --msgbox "Network drives are installed." 8 78
+            main
+        else
+            whiptail --title "Finished" --msgbox "Installation complete." 8 78
+            main
+        fi
+
+	show_success 'Done.'
+	whiptail --title "Finished" --msgbox "Network drives created successfully." 8 78
+	config_server
+}
+
+# Install plex media server
+function plex {
+    INSTALL_FILE='plexmediaserver_1.3.4.3285-b46e0ea_amd64.deb'
+    BACKUP_DIR='/media/dsbackup/mediaserver/plexmediaserver'
+    LOCAL_DIR='/var/lib/'
+
+    show_info 'Installing plex...'
+    show_warning 'Requires root privileges'
+
+    # Download and install Plex Media Server
+    cd ~/
+    mkdir plex && cd plex
+    {
+	wget https://downloads.plex.tv/plex-media-server/1.3.4.3285-b46e0ea/$INSTALL_FILE
+        sudo dpkg -i $INSTALL_FILE
+    	
+    } | whiptail --gauge "Please wait while installing..." 6 60 0
+
+    sudo rm -r plex
+
+    # Restore backed up files
+    {
+        cp -R $BACKUP_DIR $LOCAL_DIR
+    } | whiptail --gauge "Please wait while restoring plex files..." 6 60 0
+
+
+    # Done
+    show_success 'Done.'
+    whiptail --title "Finished" --msgbox "Settings changed successfully." 8 78
+    config_server
+}
+
+# Install SSH Server
+function conf_ssh {
+    show_info 'Installing ssh server...'
+    show_warning 'Requires root privileges'
+
+    {
+        sudo apt-get update
+        sudo apt-get install -fy openssh-client openssh-server
+        sed 's/Port 22/Port 33/g'
+        sed 's/PermitRootLogin prohibit-password/PermitRootLogin no/g'
+    } | whiptail --gauge "Please wait while ssh server is being installed..." 6 60 0
+
+    # Done
+    show_success 'Done.'
+    whiptail --title "Finished" --msgbox "Installed successfully." 8 78
+    config_server
+}
+
+# Install apache server
+function conf_apache {
+    show_info 'Changing system-wide sources.list...'
+    show_warning 'Requires root privileges'
+    sudo cp -r $dir/data/sources.list /etc/apt
+    # Update repository information
+    show_info 'Updating repository information...'
+    show_warning 'Requires root privileges'
+    sudo apt-get update
+    # Done
+    show_success 'Done.'
+    whiptail --title "Finished" --msgbox "Sources list changed successfully." 8 78
+    configure
+}
+
+# Install mysql server
+function conf_mysql {
+    show_info 'Disabling apport crash dialogs...'
+    show_warning 'Requires root privileges'
+    sudo sed -i "s/enabled=1/enabled=0/g" /etc/default/apport
+    # Done
+    show_success 'Done.'
+    whiptail --title "Finished" --msgbox "Settings changed successfully." 8 78
+    config_server
+}
+
+# Configure Server
+function config_server {
+    eval `resize`
+    CONF=$(whiptail \
+        --notags \
+        --title "Configure System" \
+        --menu "\nWhat would you like to do?" \
+        --cancel-button "Go Back" \
+        $LINES $COLUMNS $(( $LINES - 12 )) \
+	network_drives     'Configure network drives at Synology' \
+        plex     'Install Plex Media Server' \
+        conf_ssh     'Install and configure ssh' \
+        conf_apache      'Install and configure apache' \
+        conf_mysql	'Install and configure mysql'	\
+        3>&1 1>&2 2>&3)
+     
+    exitstatus=$?
+    if [ $exitstatus = 0 ]; then
+        $CONF
+    else
+        main
+    fi
+}

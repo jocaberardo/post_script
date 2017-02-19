@@ -1,0 +1,145 @@
+#!/bin/bash
+
+dir="$(dirname "$0")"
+
+GSETTINGS="$dir/data/gsettings.list"
+
+# Create network drives
+function network_drives {
+	show_info 'Configuring network drives...'
+	show_warning 'Requires root privileges'
+
+	DS414_IP=$(whiptail --title "DS414 IP" --inputbox "What is the ip address?" 10 60 10.0.0.10 3>&1 1>&
+
+	exitstatus=$?
+	if [ $exitstatus = 0 ]; then
+		#echo "Your IP address is:" $IP
+		echo $IP "	ds414" >> /etc/hosts
+		show_info '/etc/hosts configured.'
+		
+	else
+		#echo "You chose Cancel."
+	fi
+
+	# Backup files first
+	sudo cp /etc/hosts /etc/hosts.old
+	sudo cp /etc/fstab /etc/fstab.old
+
+	# Create correct directories
+	sudo mkdir /media/dshome
+	sudo mkdir /media/dsbackup
+	sudo mkdir /media/dsmedia
+
+	# Create and configure credentials file	
+	touch /root/.cifscredentials
+
+	# promtp user name
+	USER=$(whiptail --title "username" --inputbox "Please enter the username: " 10 60 3>&1 1>&
+	echo "username=" $USER >> /root/.cifscredentials
+	PASS=$(whiptail --title "username" --passwordbox "Please enter the password: " 10 60 3>&1 1>&
+	echo "password=" $PASS >> /root/.cifscredentials
+
+	show_info '.cifscredentials configured.'
+
+	# Insert Synlogy in hosts file
+	# echo "10.0.0.10	ds414" >> /etc/hosts
+
+	# Insert paths in /etc/fstab
+	//ds414/media /media/dsmedia cifs auto,uid=1000,iocharset=utf8,gid=users,credentials=/root/.cifscredentials,file_mode=0775,dir_mode=0775 0 0
+	//ds414/home /media/dshome cifs auto,uid=1000,iocharset=utf8,gid=users,credentials=/root/.cifscredentials,file_mode=0775,dir_mode=0775 0 0
+	//ds414/Backup /media/dsbackup cifs auto,uid=1000,iocharset=utf8,gid=users,credentials=/root/.cifscredentials,file_mode=0775,dir_mode=0775 0 0
+
+	# Mount everything
+	sudo mount -a
+
+	# Done
+        # Check
+        EXITSTATUS=$1
+        if [[ $EXITSTATUS != 0 ]]; then
+            # Error mounting drives
+            show_success 'Network drives already installed.'
+            whiptail --title "Finished" --msgbox "Network drives are installed." 8 78
+            main
+        else
+            whiptail --title "Finished" --msgbox "Installation complete." 8 78
+            main
+        fi
+
+	show_success 'Done.'
+	whiptail --title "Finished" --msgbox "Network drives created successfully." 8 78
+	configure
+}
+
+# Automatically set preferred gsettings keys as outlined in the 'gsettings.list' file
+# 'gsettings' can be obtained by executing "dconf watch /" and then manually changing settings
+function preferences {
+    show_info 'Setting preferred application-specific & desktop settings...'
+    while IFS= read line
+    do
+        eval gsettings set $line
+    done < "$GSETTINGS"
+    # Done
+    show_success 'Done.'
+    whiptail --title "Finished" --msgbox "Settings changed successfully." 8 78
+    configure
+}
+
+# Show start-up all start-up applications by modifying the 'NoDisplay' line of their .desktop files
+function startup {
+    show_info 'Changing display of startup applications...'
+    show_warning 'Requires root privileges'
+    sudo sed -i "s/NoDisplay=true/NoDisplay=false/g" /etc/xdg/autostart/*.desktop
+    # Done
+    show_success 'Done.'
+    whiptail --title "Finished" --msgbox "Settings changed successfully." 8 78
+    configure
+}
+
+# Replaces main 'sources.list' with a leaned down version
+function sources {
+    show_info 'Changing system-wide sources.list...'
+    show_warning 'Requires root privileges'
+    sudo cp -r $dir/data/sources.list /etc/apt
+    # Update repository information
+    show_info 'Updating repository information...'
+    show_warning 'Requires root privileges'
+    sudo apt-get update
+    # Done
+    show_success 'Done.'
+    whiptail --title "Finished" --msgbox "Sources list changed successfully." 8 78
+    configure
+}
+
+# Disable Apport
+function apport {
+    show_info 'Disabling apport crash dialogs...'
+    show_warning 'Requires root privileges'
+    sudo sed -i "s/enabled=1/enabled=0/g" /etc/default/apport
+    # Done
+    show_success 'Done.'
+    whiptail --title "Finished" --msgbox "Settings changed successfully." 8 78
+    configure
+}
+
+# Configure System
+function configure {
+    eval `resize`
+    CONF=$(whiptail \
+        --notags \
+        --title "Configure System" \
+        --menu "\nWhat would you like to do?" \
+        --cancel-button "Go Back" \
+        $LINES $COLUMNS $(( $LINES - 12 )) \
+	network_drives     'Configure network drives at Synology' \
+        startup     'Show all startup applications' \
+        sources     'Enable all software sources (replaces sources.list)' \
+        apport      'Disable system crash dialogs' \
+        3>&1 1>&2 2>&3)
+     
+    exitstatus=$?
+    if [ $exitstatus = 0 ]; then
+        $CONF
+    else
+        main
+    fi
+}
